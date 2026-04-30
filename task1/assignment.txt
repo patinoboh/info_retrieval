@@ -1,0 +1,4 @@
+Absolútne nemám potuchy o čo ide.
+máme spraviť nejaký systém
+
+topics = queries
