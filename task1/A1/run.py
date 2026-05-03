@@ -6,8 +6,7 @@ import math
 from collections import Counter
 import sys, os
 import xml.etree.ElementTree as ET
-from ufal.morphodita import *
-
+import simplemma
 
 parser = argparse.ArgumentParser(description="Assignment 1")
 
@@ -20,6 +19,7 @@ parser.add_argument("-p", "--prefix", type=str, default=None, help="All files pr
 parser.add_argument("--lowercase", default=False, action="store_true", help="Lowercase all tokens")
 parser.add_argument("--stopwords", type=float, default=0.0, help="Remove top percentage of stopwords (0.0-1.0)")
 parser.add_argument("--stopwords_probabs", default=False, action="store_true", help="Remove stopwords based on probability instead of frequency")
+parser.add_argument("--lemmatize", default=False, action="store_true", help="Use Morphodita lemmatization")
 
 OUTPUT_FOLDER = "outputs/"
 DOCUMENTS_FOLDER_CS = "documents_cs/"
@@ -37,12 +37,44 @@ def tokenize(text, lowercase=False):
         tokens = [t.lower() for t in tokens]
     return tokens
 
-
 def compute_global_frequencies(docs):
     freq = Counter()
     for doc in docs.values():
         freq.update(doc)
     return freq
+
+def get_stopwords2(freq, percentage):
+    if percentage <= 0:
+        return set()
+
+    sorted_terms = freq.most_common()
+    total_tokens = sum(freq.values())
+
+    print(f"Total unique terms: {len(sorted_terms)}")
+    print(f"Total term occurrences: {total_tokens}")
+
+    stopwords = set()
+
+    cumulative = 0
+    cutoff_tokens = total_tokens * percentage
+    
+    print(f"Cutoff (top {percentage*100}% token mass): {cutoff_tokens}")
+
+    for term, count in sorted_terms:
+        cumulative += count
+        stopwords.add(term)
+
+        if cumulative >= cutoff_tokens:
+            break
+
+    print(f"Selected {len(stopwords)} stopwords covering {cumulative/total_tokens:.4f} of corpus")
+
+    # print("\nTop stopwords:")
+    # for term in list(stopwords)[:20]:
+    #     print(term)
+    print("Stop words \n", list(stopwords))
+
+    return stopwords
 
 def get_stopwords(freq, percentage):
     if percentage <= 0:
@@ -130,6 +162,43 @@ def parse_queries(xml_file):
     print("Done.")
     return queries
 
+def build_lemma_mapping(vocab, language):
+    lemma_map = {}
+
+    # simplemma expects ISO codes like "en", "cs"
+    lang = language
+
+    for word in vocab:
+        lemma = simplemma.lemmatize(word, lang=lang)
+
+        # fallback safety
+        if not lemma:
+            lemma = word
+
+        lemma_map[word] = lemma
+
+    return lemma_map
+
+def apply_lemma_mapping_docs(docs, lemma_map):
+    new_docs = {}
+    for docno, vec in docs.items():
+        new_vec = Counter()
+        for word, count in vec.items():
+            lemma = lemma_map.get(word, word)
+            new_vec[lemma] += count
+        new_docs[docno] = new_vec
+    return new_docs
+
+def apply_lemma_mapping_queries(queries, lemma_map):
+    new_queries = {}
+    for qid, vec in queries.items():
+        new_vec = Counter()
+        for word, count in vec.items():
+            lemma = lemma_map.get(word, word)
+            new_vec[lemma] += count
+        new_queries[qid] = new_vec
+    return new_queries
+
 
 # COSINE SIMILARITY
 
@@ -153,11 +222,33 @@ def cosine(q, d):
 def main(args):
     docs = parse_documents(args.documents, args.language)
     queries = parse_queries(args.query)
+    
+    if args.lemmatize:
+        print("Lemmatizing with simplemma...")
+
+        vocab = set()
+        for d in docs.values():
+            vocab.update(d.keys())
+        for q in queries.values():
+            vocab.update(q.keys())
+
+        print(f"Vocabulary size before lemmatization: {len(vocab)}")
+        print(f"Terms size before lemmatization: {sum(len(d) for d in docs.values()) + sum(len(q) for q in queries.values())}")
+
+        lemma_map = build_lemma_mapping(vocab, args.language)
+
+        docs = apply_lemma_mapping_docs(docs, lemma_map)
+        queries = apply_lemma_mapping_queries(queries, lemma_map)
+
+        print(f"Vocabulary size after lemmatization: {len(set(lemma_map.values()))}")
+        print(f"Terms size after lemmatization: {sum(len(d) for d in docs.values()) + sum(len(q) for q in queries.values())}")
+        
+        print("Lemmatization done.")
 
     if args.stopwords > 0:
         print("Computing global term frequencies and determining stopwords...")
         freq = compute_global_frequencies(docs)
-        stopwords = get_stopwords(freq, args.stopwords)
+        stopwords = get_stopwords2(freq, args.stopwords)
         
         print("Removing stop words from documents and queries...")
         docs = remove_stopwords_from_docs(docs, stopwords)
@@ -198,6 +289,6 @@ if __name__ == "__main__":
             main_args.output = output_basename + f"_stop{int(stopword_percentage*100)}.res"
             main_args.stopwords = stopword_percentage
             main(main_args)
-            exit(0)
+        exit(0)
     
     main(main_args)
