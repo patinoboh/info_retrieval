@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import argparse
 import re
@@ -19,6 +19,7 @@ parser.add_argument("-l", "--language", type=str, default="cs", help="Language (
 parser.add_argument("-p", "--prefix", type=str, default=None, help="All files prefix")
 parser.add_argument("--lowercase", default=False, action="store_true", help="Lowercase all tokens")
 parser.add_argument("--stopwords", type=float, default=0.0, help="Remove top percentage of stopwords (0.0-1.0)")
+parser.add_argument("--stopwords_probabs", default=False, action="store_true", help="Remove stopwords based on probability instead of frequency")
 
 OUTPUT_FOLDER = "outputs/"
 DOCUMENTS_FOLDER_CS = "documents_cs/"
@@ -50,6 +51,16 @@ def get_stopwords(freq, percentage):
     sorted_terms = freq.most_common()
     cutoff = int(len(sorted_terms) * percentage)
 
+    print(f"Total unique terms: {len(sorted_terms)}")
+    print(f"Total term occurrences: {sum(freq.values())}")
+    print(f"Cutoff for stopwords (top {percentage*100}%): {cutoff} terms")
+    print(" ")
+
+    # print the top stopwords
+    print(f"Top {cutoff} stopwords:")
+    for term, count in sorted_terms[:cutoff]:
+        print(f"{term}: {count}")
+
     return set(term for term, _ in sorted_terms[:cutoff])
 
 def remove_stopwords_from_docs(docs, stopwords):
@@ -68,7 +79,7 @@ def remove_stopwords_from_queries(queries, stopwords):
 
 def parse_documents(doc_list_file, language="cs"):
     docs = {}
-    print("Parsing documents...")
+    print("Parsing documents...", end=" ")
 
     with open(doc_list_file) as f:
         for i,path in enumerate(f):
@@ -99,12 +110,12 @@ def parse_documents(doc_list_file, language="cs"):
                 tokens = tokenize(text, lowercase=main_args.lowercase)
                 docs[docno] = Counter(tokens)
             
-            print(f"Parsed {len(docs)} documents. from {i+1} files")
-
+            # print(f"Parsed {len(docs)} documents. from {i+1} files")
+    print("Done.")
     return docs
 
 def parse_queries(xml_file):
-    print("Parsing queries...")
+    print("Parsing queries...", end=" ")
     tree = ET.parse(xml_file)
     root = tree.getroot()
 
@@ -116,6 +127,7 @@ def parse_queries(xml_file):
         tokens = tokenize(title, lowercase=main_args.lowercase)
         queries[qid] = Counter(tokens)
 
+    print("Done.")
     return queries
 
 
@@ -178,5 +190,14 @@ if __name__ == "__main__":
     DOCUMENTS_FOLDER_EN = main_args.prefix + DOCUMENTS_FOLDER_EN if main_args.prefix else DOCUMENTS_FOLDER_EN
     main_args.query = main_args.prefix + main_args.query if main_args.prefix else main_args.query
     main_args.documents = main_args.prefix + main_args.documents if main_args.prefix else main_args.documents
+    
+    if main_args.stopwords_probabs:
+        output_basename = main_args.output.replace(".res", "")
+        for stopword_percentage in [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4]:
+            print(f"Running with stopword removal percentage: {stopword_percentage}")
+            main_args.output = output_basename + f"_stop{int(stopword_percentage*100)}.res"
+            main_args.stopwords = stopword_percentage
+            main(main_args)
+            exit(0)
     
     main(main_args)
