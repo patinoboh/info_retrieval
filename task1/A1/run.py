@@ -20,6 +20,7 @@ parser.add_argument("--lowercase", default=False, action="store_true", help="Low
 parser.add_argument("--stopwords", type=float, default=0.0, help="Remove top percentage of stopwords (0.0-1.0)")
 parser.add_argument("--stopwords_probabs", default=False, action="store_true", help="Remove stopwords based on probability instead of frequency")
 parser.add_argument("--lemmatize", default=False, action="store_true", help="Use Morphodita lemmatization")
+parser.add_argument("--tfidf", action="store_true", help="Use TF-IDF weighting")
 
 OUTPUT_FOLDER = "outputs/"
 DOCUMENTS_FOLDER_CS = "documents_cs/"
@@ -200,7 +201,57 @@ def apply_lemma_mapping_queries(queries, lemma_map):
     return new_queries
 
 
-# COSINE SIMILARITY
+def compute_df(docs):
+    df = Counter()
+    for vec in docs.values():
+        for term in vec:
+            df[term] += 1
+    return df
+
+def build_tfidf(docs, df, N):
+    tfidf_docs = {}
+
+    for docno, vec in docs.items():
+        new_vec = {}
+
+        for term, tf in vec.items():
+            if tf <= 0:
+                continue
+
+            tf_weight = 1 + math.log(tf)
+            idf = math.log(N / df[term])
+
+            new_vec[term] = tf_weight * idf
+
+        tfidf_docs[docno] = new_vec
+
+    return tfidf_docs
+
+
+def build_tfidf_queries(queries, df, N):
+    tfidf_queries = {}
+
+    for qid, vec in queries.items():
+        new_vec = {}
+
+        for term, tf in vec.items():
+            if tf <= 0:
+                continue
+
+            tf_weight = 1 + math.log(tf)
+
+            # important: handle unseen terms
+            if term in df:
+                idf = math.log(N / df[term])
+            else:
+                idf = 0  # or skip
+
+            new_vec[term] = tf_weight * idf
+
+        tfidf_queries[qid] = new_vec
+
+    return tfidf_queries
+
 
 def cosine(q, d):
     dot = sum(q[t] * d.get(t, 0) for t in q)
@@ -233,7 +284,6 @@ def main(args):
             vocab.update(q.keys())
 
         print(f"Vocabulary size before lemmatization: {len(vocab)}")
-        print(f"Terms size before lemmatization: {sum(len(d) for d in docs.values()) + sum(len(q) for q in queries.values())}")
 
         lemma_map = build_lemma_mapping(vocab, args.language)
 
@@ -241,9 +291,6 @@ def main(args):
         queries = apply_lemma_mapping_queries(queries, lemma_map)
 
         print(f"Vocabulary size after lemmatization: {len(set(lemma_map.values()))}")
-        print(f"Terms size after lemmatization: {sum(len(d) for d in docs.values()) + sum(len(q) for q in queries.values())}")
-        
-        print("Lemmatization done.")
 
     if args.stopwords > 0:
         print("Computing global term frequencies and determining stopwords...")
@@ -253,6 +300,15 @@ def main(args):
         print("Removing stop words from documents and queries...")
         docs = remove_stopwords_from_docs(docs, stopwords)
         queries = remove_stopwords_from_queries(queries, stopwords)
+
+    if args.tfidf:
+        print("Computing TF-IDF...")
+
+        N = len(docs)
+        df = compute_df(docs)
+
+        docs = build_tfidf(docs, df, N)
+        queries = build_tfidf_queries(queries, df, N)
 
     with open(OUTPUT_FOLDER + args.output, "w") as out:
         for qid, q_vec in queries.items():
