@@ -242,7 +242,7 @@ def build_tfidf_queries(queries, df, N):
 
             # important: handle unseen terms
             if term in df:
-                idf = math.log(N / df[term])
+                idf = math.log((N + 1) / (df[term] + 1))
             else:
                 idf = 0  # or skip
 
@@ -302,13 +302,17 @@ def main(args):
         queries = remove_stopwords_from_queries(queries, stopwords)
 
     if args.tfidf:
-        print("Computing TF-IDF...")
+        print("Computing TF-IDF...", end=" ")
 
         N = len(docs)
         df = compute_df(docs)
 
         docs = build_tfidf(docs, df, N)
         queries = build_tfidf_queries(queries, df, N)
+        print("Done.")
+        
+        for term in list(df.keys())[:20]:
+            print(f"{term}: df={df[term]}, idf={math.log((N + 1) / (df[term] + 1))}")
 
     with open(OUTPUT_FOLDER + args.output, "w") as out:
         for qid, q_vec in queries.items():
@@ -340,7 +344,7 @@ if __name__ == "__main__":
     
     if main_args.stopwords_probabs:
         output_basename = main_args.output.replace(".res", "")
-        for stopword_percentage in [0.0, 0.05, 0.1, 0.15, 0.2, 0.3, 0.4]:
+        for stopword_percentage in [0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5]:
             print(f"Running with stopword removal percentage: {stopword_percentage}")
             main_args.output = output_basename + f"_stop{int(stopword_percentage*100)}.res"
             main_args.stopwords = stopword_percentage
